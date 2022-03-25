@@ -1,2 +1,7 @@
-# NBA-ClusterAnalysis
-Using PCA and clustering to categorize the 2019/20 NBA teams by quality and/or play style.
+# NBA Cluster Analysis 🏀
+
+## What? 💻
+This project aims to use PCA and clustering to categorize the 2019/20 NBA teams by quality and/or play style. The [data](https://www.kaggle.com/datasets/maithiltandel/nba-all-teams-stats?select=SEASON+2019-20+STATS+OF+NBA+BOTH+CONFERENCE++-+1.csv) includes the position of the team in the final standings, the team name, and 16 season average metrics. The RMD file, made with Rstudio, includes a correlation matrix of these metrics, along with a scree plot, biplot, and several other visuals to help decide the number of Principal Components. The analysis is exploratory in nature and was just intended to see what insights we could gain by comparing basic season averages. Unfortunatley there wasn't a statisticaly obvious number of clusters, so the report covers clustering with 2 and 3 groups.
+
+## Why? 🤔
+A similar project was done in my STAT 223: Multivariate Analysis course, where our professor Jacob Martin, providing this original code with NFL player data to try and cluster players by position based on combine data (40-yard dash, bench press, etc.). Much of the base code is still the same, so all credit goes to Jacob Martin. It was just altered to meet the needs of this new data. The reason I chose NBA data was because of several reasons: my interest and past playing career in the sport, the timliness of March Madness, and my interest in working for an NBA franchise as a data scientist.
