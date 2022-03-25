@@ -1,0 +1,346 @@
+---
+title: "Clustering NBA Teams by 2019/20 season averages"
+author: "Tucker Paron"
+date: '2022'
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(digits = 3)
+
+# Loading the necessary packages
+pacman::p_load(readxl, tidyverse, GGally, cluster, factoextra, NbClust, gridExtra)
+
+# Changing the default theme choice and theme settings
+theme_set(theme_bw())
+theme_update(plot.title = element_text(hjust = 0.5))
+
+# Read in the data below:
+nba <- read.csv("nba.csv")
+
+```
+
+
+#### Finding the Determinant
+
+If the value is close to zero, there is evidence of linear dependence - meaning multiple variables are heavily associated and are not both necessary in the analysis. Fouls and yellow cards would be likely be highly correlated for example.
+
+```{r detCheck, echo=FALSE}
+nbaQ <- select(nba, c(-1, -2, -3))
+nbaQ_R <- cor(nbaQ)
+detR <- det(nbaQ_R)
+detR
+
+
+```
+
+
+Since the determinant is extremely close to zero, there is evidence of linear dependence - but it is not for certain.
+
+
+##### Correlation Plot
+Here we can see the actually relationship between every variable (metric). Values close to 1 define a strong positive relationship and -1 defines a strong negative relationship. values closer to 0 indicate weak to no relationship.
+
+```{r corrCheck, echo=FALSE}
+
+ggcorr(data = nbaQ,      # data set to use
+       high = "blue",     # color for positive correlations
+       low = "red",       # color for negative correlations
+       mid = "grey",      # color for low correlations
+       label = T,         # Shows the correlation in the box 
+       label_round = 2)   # How many digits to round the correlation
+
+
+```
+
+
+There are a signicant ammount of pairings that have strong correlations. Understanably all the attempt variables (FG, 3PT, and FT) are very highly correlated with their corresponding 'makes' variables. Additionally, FGA and FGM have very high correlations with Points. Interestingly, Defensive Rebounds are nearly perfectly correlated with Rebounds, but Offensive Rebounds have only a moderate correlation.
+
+
+##### Principal Component Analysis
+
+```{r PCA, echo=FALSE}
+
+
+# Sample size and number of variables
+n <- nrow(nbaQ); p <- ncol(nbaQ)
+
+nbaQ_Rpca <- prcomp(nbaQ, scale.=T)
+
+summary(nbaQ_Rpca)
+
+# Determine number of PCs
+fviz_screeplot(X = nbaQ_Rpca,
+               choice = "eigenvalue",
+               geom = "line",
+               linecolor = "steelblue",
+               ncp = p) + 
+  
+  labs(title = "Screeplot using the Covariance Matrix",
+       x = "Principal Component") + 
+  
+  geom_hline(yintercept = 1,
+             color = "darkred")
+
+# Biplot
+fviz_pca(X = nbaQ_Rpca,
+         axes = c(1, 2),      
+         geom = "point", 
+         alpha.ind = .8) 
+
+```
+
+Looking at the biplot, several pairs of variables appear to be linearly dependent. These are primarily the pairs we identified when looking at the correlation plot (FGA-FGM, FTA-FTM, etc.) The scree plot also indicates a need for PCA with no perfect elbow but a suggested k valye of 4 (number of clusters).
+
+
+#### Number of Clusters...
+
+We need to determine how many clusters or categories of teams there are likely to be (ie. high-pressing, possession-based, etc.)
+
+
+```{r WSS, message=F, echo=FALSE}
+# guarantee the same results for each team
+RNGversion("4.0.0")
+set.seed(1234)
+
+# WSS
+fviz_nbclust(x = nbaQ, 
+             FUNcluster = kmeans, 
+             method ="wss", 
+             k.max=10) + 
+  
+  labs(title ="Choosing K for Old Faithful Dataset Using WSS") + 
+  theme_bw()
+
+```
+
+We should use k=3 clusters as this is the value at the elbow of the plot. This is the cutoff where we can capture the most variation within the smallest amount of PC's.
+
+```{r Silhouette, message=F, echo=FALSE}
+# Guarantee the same results for each team
+RNGversion("4.0.0")
+set.seed(1234)
+
+# Silhouette Score
+fviz_nbclust(x = nbaQ, 
+             FUNcluster = kmeans, 
+             method = "silhouette", 
+             k.max=10) + 
+  
+  labs(title ="Choosing K for Old Faithful Dataset Using WSS") + 
+
+  theme_bw()
+
+```
+
+We should use k=2 clusters as this is the value with the highest silhouette score. This means the observations in each cluster are closest to one another at this ammount of clusters.
+
+
+```{r Gap, message=F, echo=FALSE}
+# Guarantee the same results for each team
+RNGversion("4.0.0")
+set.seed(1234)
+
+# Calculating the gap statistic results and passing them to the fviz_gap_stat
+clusGap(x = nbaQ, 
+        FUNcluster = kmeans, 
+        K.max = 10, 
+        B = 100) %>% 
+  
+  # Plotting the results using fviz_gap_stat
+  fviz_gap_stat() 
+
+# Using fviz_nbclust() to create the plot for the gap statistic
+# But it gives a slightly different result than fviz_gap_stat
+fviz_nbclust(x = nbaQ, 
+             FUNcluster = kmeans, 
+             nstart = 25,  
+             method = "gap_stat", 
+             nboot = 100) 
+
+
+```
+
+The optimal number of clusters here is 2 as is indicated by the gap statistic plot. This is becuase it is the smallest value of k where there was the biggest jump in variation within clusters.
+
+From these three methods I would reccomend using k=3 clusters as it could be a reasonable compromise between all of the methods; However, we'll also try using 2 clusters as this was suggested by both the gap statistic and sillhoutte score plots.
+
+
+#### Clustering the Teams
+Now we place the teams in there respective clusters according to how closely they relate to one another based on our variables.
+
+##### 3 Clusters
+```{r Clustering3, echo=FALSE}
+# Guarantee the same results for each team
+RNGversion("4.0.0")
+set.seed(1234)
+
+nbaQ_km3 <- 
+  kmeans(nbaQ, 
+         center = 3, 
+         nstart = 20, 
+         iter.max = 10)
+
+
+# And let's plot the result to compare:
+fviz_cluster(nbaQ_km3, 
+             geom = "point",        # Use points to represent each eruption
+             data = nbaQ,       # The data to be plotted
+             show.clust.cent = T,   # If you want to show the centroid of each cluster
+             ellipse = T) +         # If you want an ellipse drawn around each cluster
+  
+  labs(title = "NBA Data Clustered with k = 3") + 
+  
+  theme_bw() + 
+  
+  theme(legend.position = "none")
+
+
+# Get number of objects in each cluster.
+nbaQ_km3$size
+
+
+```
+
+There is 17 team in cluster 1, 5 teams in cluster 2, and 8 teams in cluster 3. The clusters appear distinct and could indicate different play types or possibly just overall quality. Given the variables, the latter is more likely in my opinion.
+
+
+##### Find the averages of each metric by cluster...
+
+```{r clusterMeans3, echo=FALSE}
+
+# Get average of each variable by cluster
+nbaQ_km3$centers
+
+```
+
+The above table presents the averages of each variable by cluster. Each row is represented by a cluster and each column by a variable, with the value being the corresponding average.
+
+
+##### Visualize these averages and get a sense for the range of teams within each cluster...
+```{r clusterGraphs3, warning=F, echo=FALSE}
+
+# Scatter Plot
+fviz_cluster(nbaQ_km3,
+             geom = "point",
+             data= nbaQ,
+             show.clust.center = F,
+             ellipse = F) +
+  labs(title="") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+#Box Plot using 'pivot longer'
+nbaQ$cluster <- nbaQ_km3$cluster
+nbaQ %>%
+  pivot_longer(FGM:PF, 
+               names_to = "variable", 
+               values_to = "values") %>%
+  ggplot(mapping=aes(x=values, 
+                     y=factor(cluster))) +
+  geom_boxplot()+
+  facet_wrap(facets = ~variable,
+             scales="free")
+
+
+```
+
+From the boxplot, it appears it could simply be based on quality with the second cluster having the highest scoring metrics followed by cluster 1 and then by cluster 3.
+
+##### Print cluster observations...
+```{r clusterPosition3, echo=FALSE}
+
+position_table <- cbind(nba, cluster = nbaQ_km3$cluster)
+print(position_table)
+
+
+```
+
+It seems like the previous assumption was correct. The top teams are in cluster 2, the middle-of-the-road teams are generally 1 and those that fall at the bottom are in cluster 3
+
+##### 2 Clusters
+```{r Clustering2, echo=FALSE}
+
+nbaQ_km2 <- 
+  kmeans(nbaQ, 
+         center = 2, 
+         nstart = 20, 
+         iter.max = 10)
+
+
+# And let's plot the result to compare:
+fviz_cluster(nbaQ_km2, 
+             geom = "point",        # Use points to represent each eruption
+             data = nbaQ,       # The data to be plotted
+             show.clust.cent = T,   # If you want to show the centroid of each cluster
+             ellipse = T) +         # If you want an ellipse drawn around each cluster
+  
+  labs(title = "NBA Data Clustered with k = 2") + 
+  
+  theme_bw() + 
+  
+  theme(legend.position = "none")
+
+
+# Get number of objects in each cluster.
+nbaQ_km2$size
+
+
+```
+
+The clusters are of size 22 and 8 respectively. Again, I'd assume this is based generally on quality.
+
+##### Find the averages of each metric by cluster...
+```{r clusterMeans2, echo=FALSE}
+
+# Get average of each variable by cluster
+nbaQ_km2$centers
+
+```
+
+Again, the above table shows the average of each variable by cluster.
+
+##### Visualize these averages and get a sense for the range of teams within each cluster...
+```{r clusterGraphs2, warning=F, echo=FALSE}
+
+# Scatter Plot
+fviz_cluster(nbaQ_km2,
+             geom = "point",
+             data= nbaQ,
+             show.clust.center = F,
+             ellipse = F) +
+  labs(title="") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+#Box Plot using 'pivot longer'
+nbaQ$cluster <- nbaQ_km2$cluster
+nbaQ %>%
+  pivot_longer(FGM:PF, 
+               names_to = "variable", 
+               values_to = "values") %>%
+  ggplot(mapping=aes(x=values, 
+                     y=factor(cluster))) +
+  geom_boxplot()+
+  facet_wrap(facets = ~variable,
+             scales="free")
+
+
+```
+
+Cluster 2 appears stronger in every category than cluster 1.
+
+##### Print cluster observations...
+```{r clusterPosition2, echo=FALSE}
+
+position_table <- cbind(nba, cluster = nbaQ_km2$cluster)
+print(position_table)
+
+
+```
+
+Again our assumption was accurate - cluster two had the higher ranking teams than cluster one. The clustering analysis using k=3 had a bit more detail. We may have even benefitted from trying 4 or 5 clusters to see differences beyond overall quality (such as types of teams: three point heavy teams, post-focused teams, etc.)
